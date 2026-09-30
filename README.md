@@ -133,28 +133,6 @@ After execution, the system verifies:
 
 Regression detection checks affected services and their dependents for newly introduced or unresolved failures.
 
-## Benchmark
-
-The current benchmark contains three production failure scenarios:
-
-| Scenario | Expected Root Cause | Expected Recovery |
-|---|---|---|
-| Redis crash | Redis | Restart service |
-| Order service degradation | Order service | Restore / restart service |
-| Payment service crash | Payment service | Restart service |
-
-### Current Results
-
-Across the three benchmark scenarios:
-
-- Root-cause accuracy: **100% (3/3)**
-- Recovery-action coverage: **100% (3/3)**
-- Recovery verification: **100% (3/3)**
-- Regression-free recovery: **100% (3/3)**
-- Overall recovery success: **100% (3/3)**
-
-These results are from the current three-scenario benchmark and should not be interpreted as production-scale reliability.
-
 ## Tech Stack
 
 - **Language:** Python
@@ -330,7 +308,7 @@ Implemented:
 - Regression detection
 - Benchmark evaluation
 
-Production-facing documentation and additional benchmark scenarios can be added in future iterations.
+The current implementation and benchmark represent the completed portfolio scope of this project.
 
 
 ## License
