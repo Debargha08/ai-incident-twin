@@ -2,13 +2,16 @@ from dataclasses import dataclass
 
 from app.evaluation.context_builder import BenchmarkContextBuilder
 from app.evaluation.evaluator import BenchmarkEvaluator
+from app.evaluation.metrics import BenchmarkMetricsCalculator
 from app.evaluation.outcome_evaluator import RecoveryOutcomeEvaluator
 from app.evaluation.recovery_evaluator import RecoveryActionEvaluator
 from app.evaluation.runner import BenchmarkRunner
 from app.intelligence.investigator import AIInvestigator
+from app.intelligence.dependency_graph import DependencyGraph
 from app.recovery.executor import RecoveryExecutor
 from app.recovery.planner import RecoveryPlanner
 from app.recovery.reflection import RecoveryReflector
+from app.recovery.retry import RecoveryRetryManager
 from app.recovery.regression import RecoveryRegressionDetector
 from app.recovery.safety_gate import RecoverySafetyGate
 from app.recovery.selector import RecoveryActionSelector
@@ -24,10 +27,17 @@ class BenchmarkScenarioResult:
     root_cause_correct: bool
     candidate_actions: list[str]
     selected_action: str | None
+    failure_stage: str | None
+    safety_approved: bool
+    safety_candidates_evaluated: int
+    safety_blocked_candidates: int
+    execution_successful: bool
     recovery_action_covered: bool
     verification_successful: bool
     regression_free: bool
     recovery_successful: bool
+    retry_requested: bool
+    retry_attempts: int
 
 
 class IncidentTwinBenchmark:
@@ -47,6 +57,7 @@ class IncidentTwinBenchmark:
         self.verifier = RecoveryVerifier()
         self.regression_detector = RecoveryRegressionDetector()
         self.reflector = RecoveryReflector()
+        self.retry_manager = RecoveryRetryManager(max_attempts=2)
 
         self.root_cause_evaluator = BenchmarkEvaluator()
         self.recovery_action_evaluator = RecoveryActionEvaluator()
@@ -84,12 +95,30 @@ class IncidentTwinBenchmark:
         actions = self.planner.plan(
             investigation,
             known_services=known_services,
+            dependency_graph=DependencyGraph(self.runner.environment.services),
         )
 
         candidate_actions = [
             action.action_type.value
             for action in actions
         ]
+
+        safety_evaluations = [
+            self.selector.safety_gate.evaluate(
+                action,
+                self.runner.environment,
+            )
+            for action in actions
+        ]
+
+        safety_candidates_evaluated = len(
+            safety_evaluations
+        )
+
+        safety_blocked_candidates = sum(
+            not evaluation.approved
+            for evaluation in safety_evaluations
+        )
 
         recovery_action_covered = any(
             self.recovery_action_evaluator.evaluate(
@@ -108,9 +137,28 @@ class IncidentTwinBenchmark:
         )
 
         if selected_action is None:
-            raise RuntimeError(
-                f"No executable recovery action selected "
-                f"for {scenario.name}"
+            return BenchmarkScenarioResult(
+                scenario_name=scenario.name,
+                expected_root_cause=root_cause_evaluation.expected_root_cause,
+                predicted_root_cause=root_cause_evaluation.predicted_root_cause,
+                root_cause_correct=root_cause_evaluation.correct,
+                candidate_actions=candidate_actions,
+                selected_action=None,
+                failure_stage="selection",
+                safety_approved=False,
+                safety_candidates_evaluated=(
+                    safety_candidates_evaluated
+                ),
+                safety_blocked_candidates=(
+                    safety_blocked_candidates
+                ),
+                execution_successful=False,
+                recovery_action_covered=recovery_action_covered,
+                verification_successful=False,
+                regression_free=False,
+                recovery_successful=False,
+                retry_requested=False,
+                retry_attempts=0,
             )
 
         safety_evaluation = self.selector.safety_gate.evaluate(
@@ -146,6 +194,13 @@ class IncidentTwinBenchmark:
             regression_result,
         )
 
+        self.retry_manager.reset()
+
+        if reflection.retry_required:
+            self.retry_manager.request_retry(
+                reflection.recommended_next_steps
+            )
+
         outcome = self.outcome_evaluator.evaluate(
             verification_successful=(
                 verification_result.healthy
@@ -170,6 +225,15 @@ class IncidentTwinBenchmark:
             selected_action=(
                 selected_action.action_type.value
             ),
+            failure_stage=None,
+            safety_approved=safety_evaluation.approved,
+            safety_candidates_evaluated=(
+                safety_candidates_evaluated
+            ),
+            safety_blocked_candidates=(
+                safety_blocked_candidates
+            ),
+            execution_successful=execution_result.success,
             recovery_action_covered=(
                 recovery_action_covered
             ),
@@ -182,7 +246,50 @@ class IncidentTwinBenchmark:
             recovery_successful=(
                 outcome.recovery_successful
             ),
+            retry_requested=reflection.retry_required,
+            retry_attempts=self.retry_manager.state.attempt,
         )
+
+
+    def run_all(self, scenarios):
+        results = [
+            self.run_scenario(scenario)
+            for scenario in scenarios
+        ]
+
+        metrics = BenchmarkMetricsCalculator().calculate(
+            root_cause_results=[
+                result.root_cause_correct
+                for result in results
+            ],
+            recovery_action_results=[
+                result.recovery_action_covered
+                for result in results
+            ],
+            safety_results=[
+                result.safety_approved
+                for result in results
+            ],
+            execution_results=[
+                result.execution_successful
+                for result in results
+            ],
+            verification_results=[
+                result.verification_successful
+                for result in results
+            ],
+            regression_results=[
+                result.regression_free
+                for result in results
+            ],
+            recovery_results=[
+                result.recovery_successful
+                for result in results
+            ],
+        )
+
+        return results, metrics
+
 
 
 def scenario_target_services(
@@ -198,3 +305,77 @@ def scenario_target_services(
             affected_services.append(service.name)
 
     return sorted(set(affected_services))
+
+
+if __name__ == "__main__":
+    from app.evaluation.scenarios import create_initial_scenarios
+
+    benchmark = IncidentTwinBenchmark()
+    results, metrics = benchmark.run_all(create_initial_scenarios())
+
+    for result in results:
+        print(
+            f"{result.scenario_name}: "
+            f"RCA={result.root_cause_correct}, "
+            f"ACTION={result.recovery_action_covered}, "
+            f"SAFETY={result.safety_approved}, "
+            f"BLOCKED={result.safety_blocked_candidates}, "
+            f"EXECUTION={result.execution_successful}, "
+            f"VERIFY={result.verification_successful}, "
+            f"REGRESSION={result.regression_free}, "
+            f"RECOVERY={result.recovery_successful}, "
+            f"RETRY={result.retry_requested}, "
+            f"FAILURE={result.failure_stage}"
+        )
+
+    print(metrics)
+
+    print("\n===== FINAL BENCHMARK SUMMARY =====")
+    print(f"Incidents evaluated:        {metrics.total_incidents}")
+    print(
+        f"Root-cause accuracy:        "
+        f"{metrics.root_cause_accuracy:.0%}"
+    )
+    print(
+        f"Recovery-action accuracy:   "
+        f"{metrics.recovery_action_accuracy:.0%}"
+    )
+    print(
+        f"Safety approval rate:       "
+        f"{metrics.safety_approval_rate:.0%}"
+    )
+    print(
+        f"Execution success rate:     "
+        f"{metrics.execution_success_rate:.0%}"
+    )
+    print(
+        f"Verification success rate:  "
+        f"{metrics.verification_success_rate:.0%}"
+    )
+    print(
+        f"Regression-free rate:       "
+        f"{metrics.regression_free_rate:.0%}"
+    )
+    print(
+        f"Overall recovery success:   "
+        f"{metrics.recovery_success_rate:.0%}"
+    )
+
+    total_blocked = sum(
+        result.safety_blocked_candidates
+        for result in results
+    )
+
+    retry_requests = sum(
+        result.retry_requested
+        for result in results
+    )
+
+    print(
+        f"Unsafe candidates blocked:   "
+        f"{total_blocked}"
+    )
+    print(
+        f"Retry requests:             "
+        f"{retry_requests}/{metrics.total_incidents}"
+    )

@@ -5,6 +5,7 @@ from app.simulation.environment import SimulationEnvironment
 from app.simulation.failures import (
     crash_service,
     degrade_service,
+    inject_latency,
 )
 
 
@@ -33,6 +34,12 @@ class BenchmarkRunner:
 
         elif scenario.failure_type == "degradation":
             degrade_service(
+                self.environment,
+                scenario.target_service,
+            )
+
+        elif scenario.failure_type == "latency":
+            inject_latency(
                 self.environment,
                 scenario.target_service,
             )

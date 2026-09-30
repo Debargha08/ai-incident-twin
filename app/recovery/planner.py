@@ -2,6 +2,7 @@ import json
 import re
 
 from langchain_ollama import ChatOllama
+from app.intelligence.dependency_graph import DependencyGraph
 
 from app.recovery_action import (
     RecoveryAction,
@@ -17,19 +18,21 @@ class RecoveryPlanner:
             temperature=0,
         )
 
-    def plan(self, investigation_result, known_services=None):
+    def plan(self, investigation_result, known_services=None, dependency_graph=None):
         prompt = self._build_prompt(
             investigation_result,
             known_services or [],
+            dependency_graph=dependency_graph,
         )
 
         response = self.llm.invoke(prompt)
 
         return self._parse_actions(
-            response.content
+            response.content,
+            dependency_graph=dependency_graph,
         )
 
-    def _build_prompt(self, result, known_services) -> str:
+    def _build_prompt(self, result, known_services, dependency_graph=None) -> str:
         primary = result.primary_hypothesis
 
         lines = [
@@ -66,9 +69,12 @@ class RecoveryPlanner:
             "- critical",
             "",
             "Dependency field rules:",
-            "- dependencies must contain ONLY exact service names.",
+            "- dependencies represent services that depend on the target service being recovered.",
+            "- Use the dependency topology to identify those dependent services.",
+            "- Do not list services that the target service itself depends on.",
+            "- Include only exact service names from the known services list.",
             "- Do not put explanations, conditions, or sentences in dependencies.",
-            "- Use an empty list if the action has no service dependencies.",
+            "- Use an empty list when no known service depends on the target service.",
             "Known services:",
             *[f"- {service}" for service in known_services],
             "",
@@ -102,6 +108,7 @@ class RecoveryPlanner:
     def _parse_actions(
         self,
         raw_response: str,
+        dependency_graph=None,
     ) -> list[RecoveryAction]:
         cleaned = raw_response.strip()
 
@@ -190,6 +197,10 @@ class RecoveryPlanner:
                         risk_level=risk_level,
                     )
                 )
+                if dependency_graph is not None:
+                    actions[-1].dependencies = dependency_graph.dependents_of(
+                        actions[-1].target_service
+                    )
 
             except (
                 KeyError,

@@ -264,7 +264,53 @@ app/
 6. **Evaluation is separate from execution**  
    Benchmark ground truth is used only to measure system performance, not to select recovery actions.
 
+## Evaluation & Benchmark
 
+The system was evaluated using a benchmark of **8 simulated production incidents** covering service crashes, service degradation, and latency spikes across core infrastructure and application services.
+
+### Benchmark Scenarios
+
+| Scenario | Failure Type | Target |
+|---|---|---|
+| Redis Crash | Service crash | Redis |
+| Order Service Degradation | Service degradation | Order Service |
+| Payment Service Crash | Service crash | Payment Service |
+| PostgreSQL Crash | Service crash | PostgreSQL |
+| User Service Crash | Service crash | User Service |
+| Order Service Latency Spike | Latency degradation | Order Service |
+| User Service Latency Spike | Latency degradation | User Service |
+| Redis Latency Spike | Latency degradation | Redis |
+
+### Evaluation Dimensions
+
+Each incident is evaluated across the complete recovery workflow: **incident injection → root-cause investigation → recovery planning → safety evaluation → safe action selection → execution → verification → regression detection → recovery decision**.
+
+The benchmark measures root-cause accuracy, recovery-action accuracy, safety approval, execution success, verification success, regression-free recovery, overall recovery success, unsafe candidate blocking, and retry requests.
+
+### Final Benchmark Results
+
+| Metric | Result |
+|---|---:|
+| Incidents Evaluated | **8** |
+| Root-Cause Accuracy | **100%** |
+| Recovery-Action Accuracy | **100%** |
+| Safety Approval Rate | **100%** |
+| Execution Success Rate | **100%** |
+| Verification Success Rate | **100%** |
+| Regression-Free Rate | **100%** |
+| Overall Recovery Success | **100%** |
+| Unsafe Candidates Blocked | **4** |
+| Retry Requests | **0 / 8** |
+
+The safety evaluation demonstrated that unsafe recovery candidates can be identified and blocked before execution. During the final benchmark run, **4 unsafe candidates were blocked**, while all selected recovery actions passed the safety gate.
+
+No benchmark scenario required a retry or re-investigation during the final run. The retry mechanism is instrumented as part of the workflow, but its retry path was not exercised by these 8 scenarios.
+
+### Evaluation Limitations
+
+This benchmark uses a simulated incident environment and evaluates a defined set of failure modes. The results demonstrate system behavior within the implemented simulation rather than guaranteeing equivalent performance on arbitrary real-world production incidents.
+
+The benchmark currently covers service crashes, service degradation, and latency spikes. Additional failure classes and larger scenario sets would be required for broader evaluation.
 
 ## Current Status
 
@@ -285,6 +331,7 @@ Implemented:
 - Benchmark evaluation
 
 Production-facing documentation and additional benchmark scenarios can be added in future iterations.
+
 
 ## License
 
