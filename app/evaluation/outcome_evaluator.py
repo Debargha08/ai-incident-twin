@@ -13,9 +13,11 @@ class RecoveryOutcomeEvaluator:
         self,
         verification_successful: bool,
         regression_free: bool,
+        execution_successful: bool = True,
     ) -> RecoveryOutcomeEvaluation:
         recovery_successful = (
-            verification_successful
+            execution_successful
+            and verification_successful
             and regression_free
         )
 

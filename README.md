@@ -244,7 +244,7 @@ app/
 
 ## Evaluation & Benchmark
 
-The system was evaluated using a benchmark of **8 simulated production incidents** covering service crashes, service degradation, and latency spikes across core infrastructure and application services.
+The system was evaluated on **8 baseline simulated incidents** covering service crashes, service degradation, and latency spikes across core infrastructure and application services.
 
 ### Benchmark Scenarios
 
@@ -261,34 +261,39 @@ The system was evaluated using a benchmark of **8 simulated production incidents
 
 ### Evaluation Dimensions
 
-Each incident is evaluated across the complete recovery workflow: **incident injection → root-cause investigation → recovery planning → safety evaluation → safe action selection → execution → verification → regression detection → recovery decision**.
+Each incident is evaluated across the recovery workflow: **incident injection → root-cause investigation → recovery planning → safety evaluation → action selection → execution → verification → regression detection → recovery decision**.
 
-The benchmark measures root-cause accuracy, recovery-action accuracy, safety approval, execution success, verification success, regression-free recovery, overall recovery success, unsafe candidate blocking, and retry requests.
+### Observed Benchmark Results
 
-### Final Benchmark Results
+The following results are from a recorded benchmark run over the 8 baseline scenarios.
 
-| Metric | Result |
+| Metric | Observed Result |
 |---|---:|
-| Incidents Evaluated | **8** |
-| Root-Cause Accuracy | **100%** |
-| Recovery-Action Accuracy | **100%** |
-| Safety Approval Rate | **100%** |
-| Execution Success Rate | **100%** |
-| Verification Success Rate | **100%** |
-| Regression-Free Rate | **100%** |
-| Overall Recovery Success | **100%** |
-| Unsafe Candidates Blocked | **4** |
-| Retry Requests | **0 / 8** |
+| Incidents evaluated | 8 |
+| Root-cause accuracy | 100% (8/8) |
+| Selected-action accuracy | 100% (8/8) |
+| Candidate action coverage | 100% (8/8) |
+| Safety approval rate | 100% (8/8) |
+| Candidate safety block rate | 25.0% (4/16) |
+| Safety candidates evaluated | 16 |
+| Safety candidates blocked | 4 |
+| Execution success rate | 100% (8/8) |
+| Verification success rate | 100% (8/8) |
+| Regression-free rate | 100% (8/8) |
+| Overall recovery success | 100% (8/8) |
+| Scenarios requesting retries | 0/8 |
 
-The safety evaluation demonstrated that unsafe recovery candidates can be identified and blocked before execution. During the final benchmark run, **4 unsafe candidates were blocked**, while all selected recovery actions passed the safety gate.
+**Interpreting the safety metrics:** the safety approval rate measures whether the final selected action passed the safety gate. The candidate safety block rate measures the fraction of all candidate evaluations that were blocked. These metrics describe different stages and are not contradictory.
 
-No benchmark scenario required a retry or re-investigation during the final run. The retry mechanism is instrumented as part of the workflow, but its retry path was not exercised by these 8 scenarios.
+The candidate block count varied between repeated runs (4 versus 5 blocked candidates in the runs observed). Therefore, candidate generation or safety-evaluation variability has not yet been ruled out. The 25.0% block rate above is the result of the recorded run, not a claim of deterministic behavior.
+
+No scenario required a retry in this run. The retry mechanism is implemented, but the baseline run does not demonstrate successful recovery through a retry.
 
 ### Evaluation Limitations
 
-This benchmark uses a simulated incident environment and evaluates a defined set of failure modes. The results demonstrate system behavior within the implemented simulation rather than guaranteeing equivalent performance on arbitrary real-world production incidents.
+This benchmark uses a simulated incident environment and a small, predefined set of failure scenarios. The observed results describe performance within this test setup; they do not establish production reliability or generalization to arbitrary incidents.
 
-The benchmark currently covers service crashes, service degradation, and latency spikes. Additional failure classes and larger scenario sets would be required for broader evaluation.
+The baseline scenarios cover crashes, service degradation, and latency spikes. Broader validation would require additional failure combinations, cascading and dependency failures, repeated runs, and tests that deliberately exercise failed recovery and retry paths.
 
 ## Current Status
 
