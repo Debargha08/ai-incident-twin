@@ -56,3 +56,41 @@ def test_detector_flags_unknown_affected_service():
 
     assert result.healthy is False
     assert result.unhealthy_services == ["missing-service"]
+
+
+def test_scenario_target_services_includes_transitive_dependents():
+    from types import SimpleNamespace
+
+    from app.evaluation.benchmark import scenario_target_services
+
+    scenario = SimpleNamespace(target_service="postgresql")
+    environment = SimpleNamespace(
+        services={
+            "postgresql": SimpleNamespace(
+                name="postgresql",
+                dependencies=[],
+            ),
+            "payment-service": SimpleNamespace(
+                name="payment-service",
+                dependencies=["postgresql"],
+            ),
+            "order-service": SimpleNamespace(
+                name="order-service",
+                dependencies=["payment-service"],
+            ),
+            "user-service": SimpleNamespace(
+                name="user-service",
+                dependencies=["redis"],
+            ),
+            "redis": SimpleNamespace(
+                name="redis",
+                dependencies=[],
+            ),
+        }
+    )
+
+    assert scenario_target_services(scenario, environment) == [
+        "order-service",
+        "payment-service",
+        "postgresql",
+    ]

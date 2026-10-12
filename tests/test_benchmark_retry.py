@@ -812,3 +812,111 @@ def test_candidate_coverage_does_not_imply_selected_action_correctness():
 
     assert result.recovery_action_covered is True
     assert result.selected_action_correct is False
+
+
+
+
+def test_retry_outcome_does_not_retain_previous_attempt_success(
+    monkeypatch,
+):
+    benchmark = IncidentTwinBenchmark.__new__(IncidentTwinBenchmark)
+    benchmark.retry_manager = RecoveryRetryManager(max_attempts=1)
+
+    environment = SimpleNamespace(
+        services={"redis": SimpleNamespace(dependencies=[], name="redis")},
+        step=lambda: None,
+    )
+    benchmark.runner = SimpleNamespace(environment=environment)
+    context = object()
+    benchmark.context_builder = SimpleNamespace(
+        build=lambda scenario: (None, context),
+        build_current_context=lambda scenario_name: context,
+    )
+
+    calls = {"investigate": 0, "execute": 0, "verify": 0}
+
+    def investigate(_context):
+        calls["investigate"] += 1
+        if calls["investigate"] == 2:
+            return InvestigationResult(
+                incident_id="retry-investigation-failure",
+                primary_hypothesis=None,
+            )
+        return InvestigationResult(
+            incident_id="initial-attempt",
+            primary_hypothesis=RCAHypothesis(
+                root_cause="redis", confidence=0.95
+            ),
+        )
+
+    benchmark.investigator = SimpleNamespace(investigate=investigate)
+
+    action = SimpleNamespace(
+        action_type=RecoveryActionType.RESTART_SERVICE,
+        target_service="redis",
+    )
+    benchmark.planner = SimpleNamespace(
+        plan=lambda *args, **kwargs: [action]
+    )
+    safety_evaluation = SimpleNamespace(approved=True, checks_failed=[])
+    benchmark.selector = SimpleNamespace(
+        safety_gate=SimpleNamespace(
+            evaluate=lambda *args: safety_evaluation
+        ),
+        select=lambda **kwargs: action,
+    )
+
+    def execute(**kwargs):
+        calls["execute"] += 1
+        return SimpleNamespace(success=True)
+
+    def verify(**kwargs):
+        calls["verify"] += 1
+        return SimpleNamespace(
+            healthy=False,
+            checks_failed=["Redis remains unhealthy"],
+        )
+
+    benchmark.executor = SimpleNamespace(execute=execute)
+    benchmark.verifier = SimpleNamespace(verify=verify)
+    benchmark.regression_detector = SimpleNamespace(
+        detect=lambda **kwargs: SimpleNamespace(
+            healthy=True, affected_services=["redis"]
+        )
+    )
+    benchmark.reflector = RecoveryReflector()
+    benchmark.root_cause_evaluator = benchmark_module.BenchmarkEvaluator()
+    benchmark.recovery_action_evaluator = (
+        benchmark_module.RecoveryActionEvaluator()
+    )
+    benchmark.outcome_evaluator = benchmark_module.RecoveryOutcomeEvaluator()
+
+    monkeypatch.setattr(
+        benchmark_module, "DependencyGraph", lambda services: object()
+    )
+    monkeypatch.setattr(
+        benchmark_module,
+        "scenario_target_services",
+        lambda scenario, environment: ["redis"],
+    )
+
+    scenario = BenchmarkScenario(
+        name="retry_state_reset_test",
+        description="Failed verification followed by failed investigation.",
+        target_service="redis",
+        failure_type="crash",
+        expected_root_cause="redis",
+        expected_recovery_actions=["restart_service"],
+    )
+
+    result = benchmark.run_scenario(scenario)
+
+    assert calls == {"investigate": 2, "execute": 1, "verify": 1}
+    assert result.retry_attempts == 1
+    assert result.root_cause_correct is False
+    assert result.selected_action is None
+    assert result.safety_approved is False
+    assert result.execution_successful is False
+    assert result.verification_successful is False
+    assert result.regression_free is False
+    assert result.recovery_successful is False

@@ -88,6 +88,16 @@ class IncidentTwinBenchmark:
 
         # The initial attempt plus at most max_attempts retries.
         while True:
+            # Report outcome fields from the current attempt only.
+            root_cause_evaluation = None
+            candidate_actions = []
+            selected_action_name = None
+            failure_stage = None
+            safety_approved = False
+            execution_successful = False
+            selected_action_correct = False
+            verification_successful = False
+            regression_free = False
             investigation = self.investigator.investigate(context)
 
             if investigation.primary_hypothesis is None:
@@ -389,15 +399,25 @@ def scenario_target_services(
     scenario,
     environment,
 ) -> list[str]:
-    affected_services = [
-        scenario.target_service
-    ]
+    """Return the target service and all transitive dependents."""
+    affected_services = {scenario.target_service}
+    changed = True
 
-    for service in environment.services.values():
-        if scenario.target_service in service.dependencies:
-            affected_services.append(service.name)
+    while changed:
+        changed = False
 
-    return sorted(set(affected_services))
+        for service in environment.services.values():
+            if (
+                service.name not in affected_services
+                and any(
+                    dependency in affected_services
+                    for dependency in service.dependencies
+                )
+            ):
+                affected_services.add(service.name)
+                changed = True
+
+    return sorted(affected_services)
 
 
 if __name__ == "__main__":
